@@ -1,0 +1,10 @@
+#!/bin/sh
+
+# I/O statistics from iostat (collected only when disk I/O is involved)
+
+
+# no need to run iostat if no disk I/O
+[ -n "$disks" ] || [ -n "$raid_device" ] || exit 0
+
+export S_TIME_FORMAT=ISO
+exec iostat -tkx ${interval:-1} $count $disks $raid_device

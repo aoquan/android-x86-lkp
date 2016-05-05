@@ -1,0 +1,22 @@
+#!/bin/sh
+# - interval
+
+# I/O statistics from /proc/diskstat
+
+# The statistics, including the seconds since epoch, are collected every $interval
+# seconds (default to 1s).
+
+file=$(basename $0)
+file=${file#proc-}
+
+[ -f /proc/$file ] || exit
+
+. $LKP_SRC/lib/wait.sh
+setup_wait
+
+while :
+do
+	echo time: $(date +%s.%N)
+	cat /proc/$file
+	wait_timeout $interval
+done

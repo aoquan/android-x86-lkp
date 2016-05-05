@@ -1,0 +1,27 @@
+---
+testcase: ebizzy
+default-monitors:
+  wait: activate-monitor
+  kmsg:
+  iostat:
+  numa-numastat:
+  numa-vmstat:
+  numa-meminfo:
+  proc-stat:
+    interval: 10
+  lock_stat:
+  bdi_dev_mapping:
+  nfsstat:
+  cpuidle:
+enqueue_time: 2016-01-11 08:50:07.735827318 +08:00
+nr_threads: 200%
+iterations: 2x
+ebizzy:
+  duration: 10s
+cpufreq_governor:
+default-watchdogs:
+  oom-killer:
+  watchdog:
+queue: cyclic
+dequeue_time: 2016-01-12 07:13:51.562148823 +08:00
+job_file: "/lkp/scheduled/ebizzy-test.yaml"

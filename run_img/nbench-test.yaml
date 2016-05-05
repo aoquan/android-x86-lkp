@@ -1,0 +1,44 @@
+---
+testcase: nbench
+category: benchmark
+iterations: 1x
+nbench:
+  duration: 10s
+model: qemu-system-x86_64 -enable-kvm -cpu Nehalem
+nr_vm: 8
+nr_cpu: 2
+memory: 1G
+rootfs: debian-x86_64.cgz
+hdd_partitions: "/dev/vda /dev/vdb /dev/vdc /dev/vdd /dev/vde"
+swap_partitions: "/dev/vdf"
+LKP_SERVER: localhost
+LKP_CGI_PORT: 80
+LKP_CIFS_PORT: 139
+testbox: kvm
+tbox_group: kvm
+branch: linux-next
+arch: x86_64
+kconfig: x86_64-rhel
+compiler: gcc-4.9
+commit: c13dcf9f2d6f5f06ef1bf79ec456df614c5e058b
+user: lkp
+kernel: "/pkg/linux/x86_64-rhel/gcc-4.9/c13dcf9f2d6f5f06ef1bf79ec456df614c5e058b/vmlinuz-4.2.0-rc8"
+modules_initrd: "/pkg/linux/x86_64-rhel/gcc-4.9/c13dcf9f2d6f5f06ef1bf79ec456df614c5e058b/modules.cgz"
+linux_headers_initrd: "/pkg/linux/x86_64-rhel/gcc-4.9/c13dcf9f2d6f5f06ef1bf79ec456df614c5e058b/linux-headers.cgz"
+initrd: "/osimage/debian/debian-x86_64-2015-02-07.cgz"
+lkp_initrd: "/lkp/lkp/lkp-x86_64.cgz"
+bm_initrd: "/osimage/deps/debian-x86_64-2015-02-07.cgz/lkp.cgz, /osimage/deps/debian-x86_64-2015-02-07.cgz/run-ipconfig.cgz,
+  /osimage/deps/debian-x86_64-2015-02-07.cgz/turbostat.cgz, /lkp/benchmarks/turbostat.cgz,
+  /lkp/benchmarks/nbench-x86_64.cgz"
+max_uptime: 3300
+job: "/lkp/scheduled/kvm/nbench.yaml"
+result_root: "/result/nbench/1x/kvm/debian-x86_64.cgz/x86_64-rhel/gcc-4.9/c13dcf9f2d6f5f06ef1bf79ec456df614c5e058b/2"
+job_state: booting
+bootloader_append: root=/dev/ram0 user=lkp job=/lkp/scheduled/kvm/nbench.yaml ARCH=x86_64
+  kconfig=x86_64-rhel branch=linux-next commit=c13dcf9f2d6f5f06ef1bf79ec456df614c5e058b
+  BOOT_IMAGE=/pkg/linux/x86_64-rhel/gcc-4.9/c13dcf9f2d6f5f06ef1bf79ec456df614c5e058b/vmlinuz-4.2.0-rc8
+  max_uptime=3300 RESULT_ROOT=/result/nbench/1x/kvm/debian-x86_64.cgz/x86_64-rhel/gcc-4.9/c13dcf9f2d6f5f06ef1bf79ec456df614c5e058b/2
+  LKP_SERVER=localhost earlyprintk=ttyS0,115200 systemd.log_level=err debug apic=debug
+  sysrq_always_enabled rcupdate.rcu_cpu_stall_timeout=100 panic=-1 softlockup_panic=1
+  nmi_watchdog=panic oops=panic load_ramdisk=2 prompt_ramdisk=0 console=ttyS0,115200
+  console=tty0 vga=normal rw

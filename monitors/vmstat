@@ -1,0 +1,15 @@
+#!/bin/sh
+# CPU, memory, I/O and interrupt statistics from vmstat
+
+# Print $count lines for each $interval seconds, where $count and $interval are
+# environment variables. By default $interval is 1 and $count is infinite.
+
+# Field descriptions can be found in the "man vmstat".
+
+if vmstat --help | grep -q -F 'timestamp'; then
+	opt_timestamp='--timestamp'
+else
+	opt_timestamp=
+fi
+
+exec vmstat $opt_timestamp -n ${interval:-1} $count

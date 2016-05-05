@@ -1,0 +1,219 @@
+#!/usr/bin/env ruby
+
+# dmesg and kmsg both their strengths and limitations, so both are used.
+#
+# dmesg is only available for the KVM test boxes and the test boxes that
+# have serial console output. Near half of the physical test boxes do
+# not have serial console, hence do not have these dmesg files -- they
+# only have RESULT_ROOT/kmsg which is the output of /proc/kmsg and
+# collected inside the running kernel. dmesg is collected outside of the
+# running kernel, so is more reliable when there are kernel oops. While
+# kmsg is more accurate than the lossy/noisy serial console when there
+# is no oops.
+#
+# So we use dmesg.* stats (which try to use dmesg then fall back to kmsg)
+# to catch obvious kernel warning/bugs, while use kmsg.* stats (which is based
+# on kmsg and falls back to dmesg) to catch 50000+ printk messages whose level
+# is >= KERN_WARNING.
+
+LKP_SRC = ENV['LKP_SRC'] || File.dirname(File.dirname(File.realpath($0)))
+require "#{LKP_SRC}/lib/dmesg.rb"
+
+if ENV['RESULT_ROOT']
+	RESULT_ROOT = ENV['RESULT_ROOT']
+	serial_file = "#{RESULT_ROOT}/dmesg"
+	kmsg_file = "#{RESULT_ROOT}/kmsg"
+	if File.exist? serial_file
+		dmesg_file = serial_file
+
+		if File.exist?(kmsg_file) and
+		   File.size(serial_file) == 0 and
+		   File.size(kmsg_file) > 0
+			$stderr.puts "unexpected 0-sized serial file " + serial_file
+			dmesg_file = kmsg_file
+		end
+	elsif File.exist? kmsg_file
+		dmesg_file = kmsg_file
+	else
+		# disabled due to not applicable for "lkp run";
+		# "last_state.booting" should be enough
+		#
+		# puts "early-boot-hang: 1"
+		exit
+	end
+
+elsif ARGV[0]
+	kmsg_file = ARGV[0]
+	dmesg_file = ARGV[0]
+else
+	exit
+end
+
+if not File.exist?(dmesg_file) or File.size(dmesg_file) == 0
+	# puts "early-boot-hang: 1"
+	exit
+end
+
+dmesg_lines = fixup_dmesg_file(dmesg_file)
+
+# check possibly misplaced serial log
+def verify_serial_log(dmesg_lines)
+	return unless $PROGRAM_NAME =~ /dmesg/
+	return unless ENV['RESULT_ROOT']
+	dmesg_lines.grep(/RESULT_ROOT=/) { |line|
+		next if line =~ /^kexec -l | --initrd=| --append=|"$/
+		next unless line =~ / RESULT_ROOT=([A-Za-z0-9.,;_\/+%:@=-]+) /
+		rt = $1
+		next unless Dir.exist? rt # serial console is often not reliable
+		if rt != RESULT_ROOT
+			$stderr.puts "RESULT_ROOT mismatch in dmesg: #{RESULT_ROOT} #{rt}"
+		end
+	}
+end
+verify_serial_log(dmesg_lines)
+
+=begin
+# <4>[  256.557393] [ INFO: possible circular locking dependency detected ]
+ INFO_possible_circular_locking_dependency_detected: 1
+=end
+
+def oops_to_bisect_pattern(line)
+		words = line.split
+		return '' if words.empty?
+		patterns = []
+		words.each { |w|
+			case w
+			when /([a-zA-Z0-9_]+)\.(isra|constprop|part)\.[0-9]+\+0x/
+				patterns << $1
+				break
+			when /([a-zA-Z0-9_]+\+0x)/, /([a-zA-Z0-9_]+=)/
+				patterns << $1
+				break
+			when /[^a-zA-Z\/:._-]/
+				patterns << '.*' if patterns[-1] != '.*'
+			else
+				patterns << w
+			end
+		}
+		patterns.shift while patterns[0] == '.*'
+		patterns.pop   if patterns[-1] == '.*'
+		patterns.join(' ')
+end
+
+error_ids = {}
+if $PROGRAM_NAME =~ /dmesg/
+	output = grep_crash_head dmesg_file, '-o'
+else
+	output = grep_printk_errors kmsg_file, dmesg_file, dmesg_lines
+end
+exit if output.empty?
+exit if output =~ /trinity.*: page allocation failure|Out of memory: .*trinity/ # trinity is known to trigger OOM
+
+output.each_line { |line|
+	line.chomp!
+
+	next if line =~ /INFO: Stall ended before state dump start/
+	next if line =~ /INFO: NMI handler .* took too long to run:/
+	next if line =~ /Killed process \d+ \(/					# duplicated with "Out of memory: Kill process "
+
+	# print_hex_dump
+	next if line =~ /(\s[0-9a-f]{2}){16}/
+	next if line =~ /(\s[0-9a-f]{4}){8}/
+	next if line =~ /(\s[0-9a-f]{8}){4}/
+
+	next if line =~ /[^\t\n\0[:print:]]/
+	line.tr! "\0", ''
+
+	case line
+	when /(INFO: rcu[_a-z]* self-detected stall on CPU)/,
+	     /(INFO: rcu[_a-z]* detected stalls on CPUs\/tasks:)/
+		line = $1
+		bug_to_bisect = $1
+	when /(BUG: unable to handle kernel)/,
+	     /(BUG: unable to handle kernel) NULL pointer dereference/,
+	     /(BUG: unable to handle kernel) paging request/
+		line = $1
+		bug_to_bisect = $1
+	when /(BUG: scheduling while atomic:)/,
+	     /(BUG: Bad page map in process)/,
+	     /(BUG: Bad page state in process)/,
+	     /(BUG: soft lockup - CPU#\d+ stuck for \d+s!)/,
+	     /(BUG: spinlock .* on CPU#\d+)/
+		line = $1
+		bug_to_bisect = $1
+	when /(BUG: ).* (still has locks held)/,
+	     /(INFO: task ).* (blocked for more than \d+ seconds)/
+		line = $1 + $2
+		bug_to_bisect = $2
+	when /WARNING:.* at .* ([a-zA-Z.0-9_]+\+0x)/
+		bug_to_bisect = 'WARNING:.* at .* ' + $1.sub(/\.(isra|constprop|part)\.[0-9]+\+0x/, '')
+		line =~ /(at .*)/
+		line = "WARNING: " + $1
+	when /(Kernel panic - not syncing: No working init found.)  Try passing init= option to kernel. /,
+	     /(Kernel panic - not syncing: No init found.)  Try passing init= option to kernel. /
+		line = $1
+		bug_to_bisect = line
+	when /(Out of memory: Kill process) \d+ \(/
+		line = $1
+		bug_to_bisect = $1
+	when /(Writer stall state) \d+ g\d+ c\d+ f/
+		line = $1
+		bug_to_bisect = $1
+	when /(used greatest stack depth:)/
+		line = $1
+		bug_to_bisect = $1
+	# printk(KERN_ERR "BUG: Dentry %p{i=%lx,n=%pd} still in use (%d) [unmount of %s %s]\n"
+	when  /(BUG: Dentry ).* (still in use) .* \[unmount of /
+		line = $1 + $2
+		bug_to_bisect = $1 + '.* ' + $2
+	when /([A-Z]+[ a-zA-Z]*): [a-f0-9]{4} \[#[0-9]+\] /
+		line = $1
+		bug_to_bisect = $1
+	when /(BUG: KASan: [a-z ]+) in /
+		line = $1
+		bug_to_bisect = $1
+	when /^backtrace:([a-zA-Z0-9_]+)/
+		bug_to_bisect = $1 + '+0x'
+	when /Corrupted low memory at/
+		# [   61.268659] Corrupted low memory at ffff880000007b08 (7b08 phys) = 27200c000000000
+		bug_to_bisect = oops_to_bisect_pattern line
+		line = line.sub(/\b[0-9a-f]+\b phys/, "# phys").sub(/= \b[0-9a-f]+\b/, "= #")
+	else
+		bug_to_bisect = oops_to_bisect_pattern line
+	end
+
+	error_id = line.sub(/^[^a-zA-Z]+/, "")
+
+	error_id.gsub! /\ \]$/, ""					# [ INFO: possible recursive locking detected ]
+	error_id.gsub! /\/c\/kernel-tests\/src\/[^\/]+\//, ''
+	error_id.gsub! /\/c\/(wfg|yliu)\/[^\/]+\//, ''
+	error_id.gsub! /\/lkp\/[^\/]+\/linux[0-9]*\//, ''
+	error_id.gsub! /\/kernel-tests\/linux[0-9]*\//, ''
+	error_id.gsub! /\.(isra|constprop|part)\.[0-9]+/, ''
+
+	error_id.gsub! /\b[0-9a-f]{8}\b/, "#"
+	error_id.gsub! /\b[0-9a-f]{16}\b/, "#"
+	error_id.gsub! /(=)[0-9a-f]+\b/, '\1#'
+	error_id.gsub! /[+\/]0x[0-9a-f]+\b/, ''
+	error_id.gsub! /[+\/][0-9a-f]+\b/, ''
+
+	error_id = common_error_id(error_id) + ': 1'
+
+	error_id.gsub! /([a-z]:)[0-9]+\b/, '\1'				# WARNING: at arch/x86/kernel/cpu/perf_event.c:1077 x86_pmu_start+0xaa/0x110()
+	error_id.gsub! /#:\[<#>\]\[<#>\]/, ''				# RIP: 0010:[<ffffffff91906d8d>]  [<ffffffff91906d8d>] validate_chain+0xed/0xe80
+
+	next if error_id.size <= 3
+
+	error_ids[error_id] ||= bug_to_bisect
+}
+
+exit if error_ids.empty?
+
+puts "boot_failures: 1" if $PROGRAM_NAME =~ /dmesg/
+
+# This shows each error id only once
+error_ids.each { |error_id, line|
+	puts
+	puts '# ' + line
+	puts error_id
+}

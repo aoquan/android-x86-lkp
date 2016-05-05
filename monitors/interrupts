@@ -1,0 +1,36 @@
+#!/bin/sh
+# - interval
+
+# Interrupt statistics from /proc/interrupts
+
+# The statistics, including the seconds since epoch, are collected every $interval
+# seconds if $interval is defined as an environment variable. Otherwise the
+# statistics are collected before and after running the benchmark.
+
+
+
+file=$(basename $0)
+file=${file#proc-}
+
+[ -f /proc/$file ] || exit
+
+take_snapshot()
+{
+	echo time: $(date +%s.%N)
+	cat /proc/$file
+}
+
+. $LKP_SRC/lib/wait.sh
+setup_wait
+
+if [ -n "$interval" ]; then
+	while :
+	do
+		take_snapshot
+		wait_timeout $interval
+	done
+else
+	take_snapshot
+	wait_post_test
+	take_snapshot
+fi

@@ -1,0 +1,10 @@
+#!/bin/sh
+# Logs from the kernel.
+# From dmesg and /proc/kmsg
+
+
+killall rsyslogd klogd 2>/dev/null
+
+dmesg
+
+exec cat /proc/kmsg

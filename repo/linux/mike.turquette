@@ -1,0 +1,9 @@
+url: https://git.linaro.org/people/mike.turquette/linux
+owner: Michael Turquette <mturquette@linaro.org>
+subsystems:
+- clk
+- ti
+- divider
+- qcom
+- arm
+- omap3

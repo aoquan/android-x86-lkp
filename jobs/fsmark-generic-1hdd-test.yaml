@@ -1,0 +1,13 @@
+testcase: fsmark
+category: benchmark
+
+iterations: 1x
+
+disk: 1HDD
+
+fs: ext4
+
+fsmark:
+  filesize: 1M
+  test_size: 1G
+  sync_method: NoSync
